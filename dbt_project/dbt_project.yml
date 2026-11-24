@@ -1,0 +1,43 @@
+# Berlin Transit SLA Reliability Engine - dbt project settings.
+# Think of this file as the building plan: it says where each kind of model lives,
+# how it is stored, and which tunable numbers (variables) the models can read.
+name: berlin_transit
+version: "1.0.0"
+config-version: 2
+profile: berlin_transit
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # When set (e.g. --vars '{run_date: 2026-11-20}'), fct_departures rebuilds that Berlin calendar day.
+  run_date: null
+  # Secret ingredient mixed into every hashed ID. Set DBT_HASH_SALT in prod; the default is for local dev only.
+  hash_salt: "{{ env_var('DBT_HASH_SALT', 'dev-only-salt') }}"
+  # SLA rule from ADR-002: a departure is a breach when it is more than 300 seconds (5 minutes) late.
+  sla_breach_seconds: 300
+  # Incremental runs re-read this many hours of polls so updated predictions overwrite older ones.
+  # 6 = the 3-hour dbt schedule + a departure staying visible in polls for ~45 min + margin for one skipped run.
+  lookback_hours: 6
+  # Peak hours = the busiest 25 % of hours of the day (ADR-002).
+  peak_hour_top_share: 0.25
+
+models:
+  berlin_transit:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  berlin_transit:
+    +schema: staging
+    berlin_public_holidays:
+      +column_types:
+        holiday_date: date

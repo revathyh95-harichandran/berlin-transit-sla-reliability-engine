@@ -1,0 +1,30 @@
+[sqlfluff]
+dialect = duckdb
+templater = jinja
+max_line_length = 120
+exclude_rules = AM04, RF04, CV03, LT05, ST06
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:aliasing.length]
+min_alias_length = 3
+
+[sqlfluff:templater:jinja]
+load_macros_from_path = sqlfluff_macros
+
+[sqlfluff:templater:jinja:context]
+this = fct_departures

@@ -1,0 +1,200 @@
+version: 2
+
+models:
+  - name: stg_departures
+    description: >
+      GRAIN: one row per departure event per polled station per data source (departure_key + station_id +
+      is_synthetic). Real and synthetic departures stacked, de-duplicated so the latest poll wins, timestamps
+      converted to Europe/Berlin, trip and vehicle IDs replaced by salted SHA-256 hashes. This is the cleaned
+      "receipt roll" that the Gold fact table is built from.
+    columns:
+      - name: departure_sk
+        description: "Surrogate key (hash of departure_key + station_id + is_synthetic). Primary key."
+        data_tests: [unique, not_null]
+      - name: departure_key
+        description: "Fingerprint of trip + stop + planned time, created by the collector."
+        data_tests: [not_null]
+      - name: station_id
+        description: "The station that was polled."
+        data_tests: [not_null]
+      - name: stop_id
+        description: "The exact stop or platform group the vehicle leaves from."
+      - name: stop_name
+        description: "Human-readable stop name."
+      - name: stop_latitude
+        description: "Stop latitude (WGS84)."
+      - name: stop_longitude
+        description: "Stop longitude (WGS84)."
+      - name: trip_id_hash
+        description: "Salted SHA-256 of the VBB trip ID. The raw trip ID never leaves Silver."
+        data_tests: [not_null]
+      - name: vehicle_trip_number_hash
+        description: "Salted SHA-256 of the vehicle trip number (fahrtNr). Empty when VBB gave none."
+      - name: line_id
+        description: "VBB line identifier."
+      - name: line_name
+        description: "Public line name, e.g. S41, U2, M10, 100."
+        data_tests: [not_null]
+      - name: product
+        description: "Mode of transport as VBB names it: suburban (S-Bahn), subway (U-Bahn), tram, bus."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["suburban", "subway", "tram", "bus"]
+      - name: direction
+        description: "Direction sign shown on the vehicle."
+      - name: planned_departure_utc
+        description: "Planned departure time in UTC."
+      - name: planned_departure_berlin
+        description: "Planned departure as Berlin wall-clock time (CET/CEST)."
+      - name: predicted_departure_berlin
+        description: "Predicted departure as Berlin wall-clock time. Empty when there is no realtime data."
+      - name: polled_at_utc
+        description: "UTC time of the poll whose reading was kept (the latest one)."
+        data_tests: [not_null]
+      - name: planned_date_berlin
+        description: "Berlin calendar date of the planned departure."
+        data_tests: [not_null]
+      - name: planned_hour_berlin
+        description: "Berlin hour of day (0-23) of the planned departure."
+        data_tests: [not_null]
+      - name: polled_date_berlin
+        description: "Berlin calendar date of the kept poll."
+        data_tests: [not_null]
+      - name: delay_seconds
+        description: "Delay in seconds (negative = early). Empty when there is no realtime data."
+      - name: is_cancelled
+        description: "True when VBB marked the departure as cancelled."
+        data_tests: [not_null]
+      - name: has_realtime
+        description: "True when a delay value exists (delay_seconds is not empty)."
+        data_tests: [not_null]
+      - name: is_sla_breach
+        description: "True when the departure is not cancelled and the delay is more than 300 seconds."
+        data_tests: [not_null]
+      - name: is_synthetic
+        description: "True for the generated practice dataset, false for real VBB data."
+        data_tests: [not_null]
+
+  - name: stg_weather_hourly
+    description: >
+      GRAIN: one row per hour of Berlin weather per data source (hour_utc + is_synthetic). Real and synthetic
+      weather stacked, with a weather_condition bucket (snow, rain, windy, clear; first match wins).
+    columns:
+      - name: weather_hour_key
+        description: "Surrogate key (hash of is_synthetic + hour_utc). Primary key."
+        data_tests: [unique, not_null]
+      - name: hour_utc
+        description: "Start of the weather hour in UTC."
+        data_tests: [not_null]
+      - name: hour_berlin
+        description: "Start of the weather hour as Berlin wall-clock time."
+        data_tests: [not_null]
+      - name: date_berlin
+        description: "Berlin calendar date of the hour."
+        data_tests: [not_null]
+      - name: hour_of_day_berlin
+        description: "Berlin hour of day (0-23)."
+        data_tests: [not_null]
+      - name: temperature_c
+        description: "Air temperature in degrees Celsius."
+      - name: precipitation_mm
+        description: "Total precipitation in millimetres."
+      - name: rain_mm
+        description: "Rain in millimetres."
+      - name: snowfall_cm
+        description: "Snowfall in centimetres."
+      - name: wind_speed_kmh
+        description: "Wind speed in km/h."
+      - name: wind_gusts_kmh
+        description: "Wind gusts in km/h."
+      - name: weather_code
+        description: "WMO weather code from Open-Meteo."
+      - name: is_forecast
+        description: "True while the hour is still a forecast, false once measured."
+      - name: weather_condition
+        description: "Bucket per ADR-002: snow (snowfall > 0 cm), rain (precipitation >= 0.5 mm), windy (wind >= 30 km/h), else clear."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["snow", "rain", "windy", "clear"]
+      - name: is_synthetic
+        description: "True for the generated practice dataset."
+
+  - name: stg_bezirke
+    description: "GRAIN: one row per Berlin district (Bezirk), 12 rows. Official boundaries as GeoJSON text."
+    columns:
+      - name: bezirk_code
+        description: "Official district code, '001' (Mitte) to '012' (Reinickendorf). Primary key."
+        data_tests: [unique, not_null]
+      - name: bezirk_name
+        description: "District name."
+        data_tests: [not_null]
+      - name: geometry_geojson
+        description: "District outline as GeoJSON text (longitude/latitude)."
+
+  - name: stg_poll_runs
+    description: >
+      GRAIN: one row per station per 15-minute poll slot (station_id + poll_slot_utc). The collector logbook:
+      ok, ok_empty (nothing leaving, normal at night) or error.
+    columns:
+      - name: station_id
+        description: "The station that was polled."
+        data_tests: [not_null]
+      - name: station_name
+        description: "Station name."
+      - name: poll_slot_utc
+        description: "The 15-minute slot the poll belongs to, in UTC."
+        data_tests: [not_null]
+      - name: poll_slot_berlin
+        description: "The same slot as Berlin wall-clock time."
+      - name: poll_date_berlin
+        description: "Berlin calendar date of the slot."
+      - name: polled_at_utc
+        description: "When the poll actually ran, in UTC."
+      - name: status
+        description: "Poll outcome."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["ok", "ok_empty", "error"]
+      - name: departures_received
+        description: "Departures the API returned."
+      - name: departures_valid
+        description: "Departures that passed the data contract."
+      - name: departures_quarantined
+        description: "Departures rejected into quarantine."
+      - name: duplicates_dropped
+        description: "Exact duplicates dropped inside the poll."
+      - name: is_synthetic
+        description: "Always false: only real polls are logged."
+
+  - name: stg_quarantine_events
+    description: >
+      GRAIN: one row per rejected record (quarantine_id). Why a record failed the data contract. The raw payload
+      is not carried forward because it holds unhashed IDs.
+    columns:
+      - name: quarantine_id
+        description: "Fingerprint of the rejected record. Primary key."
+        data_tests: [unique, not_null]
+      - name: source
+        description: "Which collector rejected the record (vbb_departures, synthetic_vbb, open_meteo)."
+      - name: station_id
+        description: "Station the record came from, empty for weather."
+      - name: poll_slot_utc
+        description: "Poll slot in UTC."
+      - name: poll_date_berlin
+        description: "Berlin calendar date of the poll slot."
+      - name: polled_at_utc
+        description: "When the record was polled, in UTC."
+      - name: reason
+        description: "Full reason text from the validator."
+      - name: reason_category
+        description: "Simplified reason: missing_planned_time, implausible_delay, out_of_scope_product, bad_coordinates, not_an_object, weather_reading or other."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["missing_planned_time", "implausible_delay", "out_of_scope_product", "bad_coordinates", "not_an_object", "weather_reading", "other"]
+      - name: is_synthetic
+        description: "True for rejects from the synthetic dataset."

@@ -56,3 +56,9 @@ docs/study_guide.md
 
 # Loader secrets (credentials stay in environment variables / CI secrets)
 .dlt/secrets.toml
+
+# dbt seed files are small reference tables (e.g. public holidays) and must be committed
+!dbt_project/seeds/*.csv
+
+# dbt local user id file
+dbt_project/.user.yml

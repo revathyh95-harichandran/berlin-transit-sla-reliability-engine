@@ -1,0 +1,115 @@
+# Scheduled production transform: builds the Silver and Gold layers in Snowflake every 3 hours.
+#
+# Timing: the collector (collect-transit-data) polls every 15 minutes at :00, :15, :30 and :45.
+# This job starts at :20 past every third hour (00:20, 03:20, ... UTC). Power BI uses Import Mode,
+# so 3-hourly freshness is enough and keeps the warehouse asleep most of the day (credit saving).
+#
+# Safety: if the Snowflake key secret is not set yet, the first step prints a notice and every
+# later step is skipped. The run is then green but does nothing, which is the intended behaviour
+# before the secrets exist.
+
+name: transform-prod
+
+on:
+  schedule:
+    - cron: "20 */3 * * *"
+  workflow_dispatch:
+
+# Only one production transform at a time. A second run waits in the queue instead of racing the first.
+concurrency:
+  group: transform-prod
+  cancel-in-progress: false
+
+# The job only reads the code and writes an artifact. No write access to the repository.
+permissions:
+  contents: read
+
+jobs:
+  transform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_TRANSFORM_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_TRANSFORM_PRIVATE_KEY }}
+      DBT_HASH_SALT: ${{ secrets.DBT_HASH_SALT }}
+      RUNTIME__DLTHUB_TELEMETRY: "false"
+      PYTHONUTF8: "1"
+
+    steps:
+      # FIRST step: is the Snowflake key secret set? The key value is never printed.
+      - name: Check that the Snowflake key secret exists
+        id: gate
+        run: |
+          if [ -z "${SNOWFLAKE_TRANSFORM_PRIVATE_KEY}" ]; then
+            echo "::notice title=Transform skipped::SNOWFLAKE_TRANSFORM_PRIVATE_KEY is not set yet. Add it under Settings > Secrets and variables > Actions. The remaining steps are skipped."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Snowflake key secret found. The transform will run."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the code
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Check that the hash salt secret exists
+        # The salt makes hashed IDs private. Production must never fall back to the development salt.
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if [ -z "${DBT_HASH_SALT}" ]; then
+            echo "::error title=DBT_HASH_SALT missing::The Snowflake key is set, but the DBT_HASH_SALT secret is empty. Add it before running production. The run stops here."
+            exit 1
+          fi
+          echo "Hash salt secret found."
+
+      - name: Set up Python 3.11
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dbt for Snowflake (versions from requirements.txt)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # Read the pinned versions from requirements.txt, so this job and the laptop use the same versions.
+          DBT_CORE_PIN=$(grep -E '^dbt-core==' requirements.txt)
+          DBT_SNOWFLAKE_PIN=$(grep -E '^dbt-snowflake==' requirements.txt)
+          echo "Installing ${DBT_CORE_PIN} and ${DBT_SNOWFLAKE_PIN}"
+          pip install "${DBT_CORE_PIN}" "${DBT_SNOWFLAKE_PIN}"
+
+      - name: Create the dbt profile from the example
+        if: steps.gate.outputs.run == 'true'
+        run: cp dbt_project/profiles.yml.example dbt_project/profiles.yml
+
+      - name: Build production models and run all tests
+        # dbt build runs each model and then its tests. If a test with severity error fails, the models
+        # that depend on it are not rebuilt, so broken numbers never reach PROD.Marts.
+        id: dbt_build
+        if: steps.gate.outputs.run == 'true'
+        working-directory: dbt_project
+        run: dbt build --target prod --profiles-dir .
+
+      - name: Write the pipeline health report
+        # Runs even when the build failed, so the health file always says what happened.
+        if: always() && steps.gate.outputs.run == 'true'
+        env:
+          BUILD_OUTCOME: ${{ steps.dbt_build.outcome }}
+        run: |
+          # The collector is a separate workflow, so its state is not checked here (NOT_CHECKED).
+          # There is no Power BI step in this workflow, so the refresh is NOT_CHECKED as well.
+          python orchestration/health.py \
+            --step dlt_ingest=not_checked \
+            --step "dbt_run=${BUILD_OUTCOME}" \
+            --step "dbt_test=${BUILD_OUTCOME}" \
+            --refresh-outcome not_run
+
+      - name: Upload the health report
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-health-${{ github.run_id }}
+          path: logs/pipeline_health.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -11,7 +11,7 @@
 --   * 1 resource monitor (a daily spending cap on that warehouse)
 --   * 3 databases:  RAW (Bronze)  ->  STAGING (Silver)  ->  PROD (Gold)
 --   * 3 roles with least privilege (each role only gets what it needs)
---   * 1 service user SVC_INGEST that logs in with a key pair (no password)
+--   * 2 service users (SVC_INGEST for loading, SVC_TRANSFORM for dbt) that log in with key pairs
 --   * 1 masking policy to hide technical IDs from report readers
 --
 -- Region: this account runs in AWS eu-central-1 (Frankfurt), so all data stays
@@ -169,18 +169,40 @@ GRANT APPLY ON MASKING POLICY PROD.GOVERNANCE.MASK_TECHNICAL_ID TO ROLE TRANSFOR
 
 
 -- -----------------------------------------------------------------------------
--- Step 7: Quick check. You should see the warehouse, 3 roles and the user.
+-- Step 7: Service user for dbt (the scheduled transformation run).
+-- Same idea as SVC_INGEST, but a separate badge with its own key pair, so the
+-- collector and dbt can be revoked independently. Only the TRANSFORM_ROLE is
+-- attached: it reads RAW and builds STAGING and PROD.
+-- The public key is added in a separate step (see the end of this file).
+-- (The same statements are also in infra/svc_transform.sql, for running just
+-- this step on an account that is already set up.)
+-- -----------------------------------------------------------------------------
+CREATE USER IF NOT EXISTS SVC_TRANSFORM
+    TYPE              = SERVICE
+    DEFAULT_ROLE      = TRANSFORM_ROLE
+    DEFAULT_WAREHOUSE = TRANSIT_WH
+    COMMENT           = 'Scheduled dbt run: RAW -> STAGING -> PROD';
+
+GRANT ROLE TRANSFORM_ROLE TO USER SVC_TRANSFORM;
+
+
+-- -----------------------------------------------------------------------------
+-- Step 8: Quick check. You should see the warehouse, 3 roles and both users.
 -- -----------------------------------------------------------------------------
 SHOW WAREHOUSES LIKE 'TRANSIT_WH';
 SHOW ROLES LIKE '%_ROLE';
-SHOW USERS LIKE 'SVC_INGEST';
+SHOW USERS LIKE 'SVC_%';
 
 
 -- =============================================================================
--- LATER (after creating the key pair): attach the public key to SVC_INGEST.
--- Paste the text of rsa_key.pub WITHOUT the "-----BEGIN/END PUBLIC KEY-----"
--- lines and without line breaks, then run this single statement:
+-- LATER (after creating the key pairs): attach each public key to its user.
+-- Use one separate key pair per service user. Paste the text of the .pub file
+-- WITHOUT the "-----BEGIN/END PUBLIC KEY-----" lines and without line breaks,
+-- then run each statement:
 --
 -- ALTER USER SVC_INGEST SET RSA_PUBLIC_KEY = 'MIIBIjANBgkqh...';
 -- DESC USER SVC_INGEST;   -- RSA_PUBLIC_KEY_FP should now show a fingerprint
+--
+-- ALTER USER SVC_TRANSFORM SET RSA_PUBLIC_KEY = 'MIIBIjANBgkqh...';
+-- DESC USER SVC_TRANSFORM;   -- RSA_PUBLIC_KEY_FP should now show a fingerprint
 -- =============================================================================

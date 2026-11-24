@@ -1,0 +1,146 @@
+# Pull request checks: code quality, security scan, a fresh dbt build on DuckDB, and an Airflow import check.
+#
+# Think of it as the pre-flight checklist before a plane takes off: every box must be ticked
+# before the change can be merged. Nothing here touches Snowflake, so it costs nothing and needs no secrets.
+#
+# Notes:
+#   * GitHub Actions runs on Ubuntu, so requirements.txt is installed without the two Windows-only
+#     packages (pywin32 and win-precise-time). They are only needed on the laptop.
+#   * The job runs on pull requests and on pushes to main and feature branches.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+
+# A newer push to the same branch cancels the older check run, so the queue does not grow.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The checks only read the code. No write access is granted to the token.
+permissions:
+  contents: read
+
+env:
+  # Stop dlt from sending anonymous usage telemetry during CI runs.
+  RUNTIME__DLTHUB_TELEMETRY: "false"
+  # Force UTF-8 text output, so German names like "Schöneberg" print correctly on every runner.
+  PYTHONUTF8: "1"
+
+jobs:
+  python-quality:
+    name: python-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          # Re-use downloaded packages between runs, like keeping spare parts in a drawer.
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install project dependencies (Linux-friendly)
+        run: |
+          # Drop the two Windows-only packages, then install everything else.
+          grep -v -E '^(pywin32|win-precise-time)==' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+
+      - name: Run unit tests (pytest)
+        run: python -m pytest
+
+      - name: Security scan (bandit)
+        # Scans the production code only; test files are excluded on purpose.
+        run: bandit -q -r ingestion orchestration -x ingestion/tests,orchestration/tests
+
+      - name: SQL style check (sqlfluff)
+        run: sqlfluff lint dbt_project/models
+
+  dbt-dev-build:
+    name: dbt-dev-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: python-quality
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install project dependencies (Linux-friendly)
+        run: |
+          grep -v -E '^(pywin32|win-precise-time)==' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+
+      - name: Build a fresh DuckDB with practice and reference data
+        # The DuckDB file is created from scratch on the runner. It is never committed.
+        run: |
+          mkdir -p data
+          python -m ingestion.bezirke --target dev
+          python -m ingestion.weather --target dev
+          python -m ingestion.synthetic_history --target dev
+          # One real poll of the public VBB API, so the real source tables exist for dbt.
+          python -m ingestion.vbb_departures --target dev
+
+      - name: Create the dbt profile from the example
+        run: cp dbt_project/profiles.yml.example dbt_project/profiles.yml
+
+      - name: Build all dbt models, seeds and tests on DuckDB
+        working-directory: dbt_project
+        run: dbt build --target dev --profiles-dir .
+
+  airflow-dag-check:
+    name: airflow-dag-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: python-quality
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Apache Airflow 2.10 with its official constraints
+        # The constraints file pins every dependency to the versions Airflow was tested with.
+        # Without it, pip could pick combinations that do not install together.
+        run: |
+          AIRFLOW_VERSION=2.10.5
+          PYTHON_VERSION=3.11
+          CONSTRAINTS_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+          pip install "apache-airflow==${AIRFLOW_VERSION}" --constraint "${CONSTRAINTS_URL}"
+
+      - name: Import the DAG and fail on any import error
+        env:
+          # Keep Airflow's files in a temporary folder and skip the example DAGs.
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow
+          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+        run: |
+          python - <<'PY'
+          from airflow.models import DagBag
+
+          bag = DagBag(dag_folder="orchestration/dags", include_examples=False)
+          if bag.import_errors:
+              for path, message in bag.import_errors.items():
+                  print(f"IMPORT ERROR in {path}:\n{message}")
+              raise SystemExit(1)
+          assert "berlin_transit_elt_pipeline" in bag.dags, "the ELT DAG was not found"
+          print(f"DAG import OK: {sorted(bag.dags)}")
+          PY
