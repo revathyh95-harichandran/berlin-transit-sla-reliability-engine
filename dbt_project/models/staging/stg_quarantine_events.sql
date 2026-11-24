@@ -13,9 +13,9 @@ select
     quarantine_id,
     source,
     station_id,
-    {{ to_utc_time('poll_slot_utc') }} as poll_slot_utc,
-    cast({{ to_berlin_time('poll_slot_utc') }} as date) as poll_date_berlin,
-    {{ to_utc_time('polled_at_utc') }} as polled_at_utc,
+    {{ as_utc_timestamp('poll_slot_utc') }} as poll_slot_utc,
+    cast({{ to_berlin_time(as_utc_timestamp('poll_slot_utc')) }} as date) as poll_date_berlin,
+    {{ as_utc_timestamp('polled_at_utc') }} as polled_at_utc,
     reason,
     case
         when source = 'open_meteo' then 'weather_reading'

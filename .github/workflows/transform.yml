@@ -14,6 +14,11 @@ on:
   schedule:
     - cron: "20 */3 * * *"
   workflow_dispatch:
+    inputs:
+      full_refresh:
+        description: "Rebuild all incremental models from scratch (use after type or logic changes)"
+        type: boolean
+        default: false
 
 # Only one production transform at a time. A second run waits in the queue instead of racing the first.
 concurrency:
@@ -89,7 +94,16 @@ jobs:
         id: dbt_build
         if: steps.gate.outputs.run == 'true'
         working-directory: dbt_project
-        run: dbt build --target prod --profiles-dir .
+        env:
+          # Only a manual run that ticks full_refresh rebuilds from scratch. Scheduled runs leave it empty.
+          FULL_REFRESH_INPUT: ${{ inputs.full_refresh }}
+        run: |
+          FULL_REFRESH_FLAG=""
+          if [ "${FULL_REFRESH_INPUT}" = "true" ]; then
+            FULL_REFRESH_FLAG="--full-refresh"
+            echo "Manual full refresh requested: incremental models will be rebuilt from scratch."
+          fi
+          dbt build --target prod --profiles-dir . ${FULL_REFRESH_FLAG}
 
       - name: Write the pipeline health report
         # Runs even when the build failed, so the health file always says what happened.

@@ -29,7 +29,7 @@ first_day_per_source as (
 
 today as (
 
-    select cast({{ to_berlin_time('current_timestamp') }} as date) as today_berlin
+    select cast({{ to_berlin_time(as_utc_timestamp('current_timestamp')) }} as date) as today_berlin
 
 )
 

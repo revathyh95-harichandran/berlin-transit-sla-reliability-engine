@@ -8,8 +8,8 @@
 {% macro config() -%}{% if kwargs %}{% endif %}{%- endmacro %}
 {% macro is_incremental() -%}{%- endmacro %}
 {% macro var(name, default=none) -%}1{%- endmacro %}
-{% macro to_berlin_time(column) -%}timezone('Europe/Berlin', {{ column }}){%- endmacro %}
-{% macro to_utc_time(column) -%}timezone('UTC', {{ column }}){%- endmacro %}
+{% macro to_berlin_time(column) -%}timezone('Europe/Berlin', timezone('UTC', {{ column }})){%- endmacro %}
+{% macro as_utc_timestamp(column) -%}timezone('UTC', {{ column }}){%- endmacro %}
 {% macro sha256_hex(expression) -%}sha256({{ expression }}){%- endmacro %}
 {% macro hash_pii(column) -%}sha256(cast({{ column }} as varchar)){%- endmacro %}
 {% macro point_in_polygon(geojson_column, longitude, latitude) -%}

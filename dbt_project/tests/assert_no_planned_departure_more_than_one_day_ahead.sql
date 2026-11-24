@@ -4,4 +4,4 @@ select
     departure_sk,
     planned_departure_utc
 from {{ ref('fct_departures') }}
-where planned_departure_utc > {{ add_hours(to_utc_time('current_timestamp'), '24') }}
+where planned_departure_utc > {{ add_hours(as_utc_timestamp('current_timestamp'), '24') }}

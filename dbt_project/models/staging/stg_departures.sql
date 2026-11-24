@@ -36,6 +36,7 @@
       Berlin day. A full refresh rebuilds everything.
 */
 
+{% set timestamp_columns = ['planned_departure', 'predicted_departure', 'polled_at_utc', 'poll_slot_utc'] %}
 {% set departure_columns = [
     'departure_key', 'trip_id', 'vehicle_trip_number', 'station_id', 'stop_id', 'stop_name',
     'stop_latitude', 'stop_longitude', 'planned_departure', 'predicted_departure', 'delay_seconds',
@@ -47,16 +48,20 @@ with real_departures as (
     -- Real departures collected from the VBB API.
     select
         {% for column in departure_columns -%}
-            {{ column }},
+            {% if column in timestamp_columns -%}
+                {{ as_utc_timestamp('raw_rows.' ~ column) }} as {{ column }},
+            {% else -%}
+                raw_rows.{{ column }},
+            {% endif -%}
         {% endfor -%}
         false as is_synthetic
-    from {{ source('transit', 'vbb_departures') }}
+    from {{ source('transit', 'vbb_departures') }} as raw_rows
     {%- if is_incremental() %}
         where
             {%- if var('run_date', none) is not none %}
-                cast({{ to_berlin_time('planned_departure') }} as date) = cast('{{ var("run_date") }}' as date)
+                cast({{ to_berlin_time(as_utc_timestamp('raw_rows.planned_departure')) }} as date) = cast('{{ var("run_date") }}' as date)
             {%- else %}
-                {{ to_utc_time('polled_at_utc') }} >= coalesce(
+                {{ as_utc_timestamp('raw_rows.polled_at_utc') }} >= coalesce(
                     (
                         select {{ add_hours('max(stored.polled_at_utc)', '-' ~ var('lookback_hours')) }}
                         from {{ this }} as stored
@@ -74,16 +79,20 @@ synthetic_departures as (
     -- Generated practice departures, kept apart by the is_synthetic flag.
     select
         {% for column in departure_columns -%}
-            {{ column }},
+            {% if column in timestamp_columns -%}
+                {{ as_utc_timestamp('raw_rows.' ~ column) }} as {{ column }},
+            {% else -%}
+                raw_rows.{{ column }},
+            {% endif -%}
         {% endfor -%}
-        coalesce(is_synthetic, true) as is_synthetic
-    from {{ source('transit', 'synthetic_departures') }}
+        coalesce(raw_rows.is_synthetic, true) as is_synthetic
+    from {{ source('transit', 'synthetic_departures') }} as raw_rows
     {%- if is_incremental() %}
         where
             {%- if var('run_date', none) is not none %}
-                cast({{ to_berlin_time('planned_departure') }} as date) = cast('{{ var("run_date") }}' as date)
+                cast({{ to_berlin_time(as_utc_timestamp('raw_rows.planned_departure')) }} as date) = cast('{{ var("run_date") }}' as date)
             {%- else %}
-        {{ to_utc_time('polled_at_utc') }} >= coalesce(
+        {{ as_utc_timestamp('raw_rows.polled_at_utc') }} >= coalesce(
             (
                 select {{ add_hours('max(stored.polled_at_utc)', '-' ~ var('lookback_hours')) }}
                 from {{ this }} as stored
@@ -151,10 +160,10 @@ converted as (
         direction,
 
         -- Timestamps: UTC (as collected) and Berlin wall-clock time.
-        {{ to_utc_time('planned_departure') }} as planned_departure_utc,
+        planned_departure as planned_departure_utc,
         {{ to_berlin_time('planned_departure') }} as planned_departure_berlin,
         {{ to_berlin_time('predicted_departure') }} as predicted_departure_berlin,
-        {{ to_utc_time('polled_at_utc') }} as polled_at_utc,
+        polled_at_utc,
         {{ to_berlin_time('polled_at_utc') }} as polled_at_berlin,
 
         delay_seconds,

@@ -92,7 +92,7 @@ select
     {{ surrogate_key(['all_days.date_day', 'all_days.is_synthetic']) }} as quality_key,
     all_days.date_day as date,
     all_days.is_synthetic,
-    all_days.date_day >= cast({{ to_berlin_time('current_timestamp') }} as date) as is_partial_day,
+    all_days.date_day >= cast({{ to_berlin_time(as_utc_timestamp('current_timestamp')) }} as date) as is_partial_day,
 
     -- Polls: expected versus logged versus outcome (real data only)
     case when not all_days.is_synthetic then station_count.stations * 96 end as polls_expected,

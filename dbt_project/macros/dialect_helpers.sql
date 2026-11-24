@@ -5,32 +5,34 @@
 #}
 
 
-{# ---- UTC to Europe/Berlin wall-clock time ------------------------------------------------ #}
-{# Input: a timestamp WITH time zone (as loaded by dlt). Output: Berlin clock time, CET/CEST aware. #}
-{% macro to_berlin_time(column) -%}
-    {{ return(adapter.dispatch('to_berlin_time')(column)) }}
+{# ---- Normalise ANY timestamp type to one plain UTC timestamp ------------------------------ #}
+{# dlt can create TIMESTAMP_TZ in one table and TIMESTAMP_LTZ in another on Snowflake, and those cannot be #}
+{# stacked with UNION. Every raw timestamp passes through this macro first, so all branches have ONE type: #}
+{# a plain UTC clock time (TIMESTAMP_NTZ on Snowflake, TIMESTAMP on DuckDB). Input must carry a time zone. #}
+{% macro as_utc_timestamp(column) -%}
+    {{ return(adapter.dispatch('as_utc_timestamp')(column)) }}
 {%- endmacro %}
 
-{% macro duckdb__to_berlin_time(column) -%}
-    timezone('Europe/Berlin', {{ column }})
-{%- endmacro %}
-
-{% macro snowflake__to_berlin_time(column) -%}
-    convert_timezone('Europe/Berlin', {{ column }})::timestamp_ntz
-{%- endmacro %}
-
-
-{# ---- Timestamp WITH time zone to plain UTC clock time ------------------------------------ #}
-{% macro to_utc_time(column) -%}
-    {{ return(adapter.dispatch('to_utc_time')(column)) }}
-{%- endmacro %}
-
-{% macro duckdb__to_utc_time(column) -%}
+{% macro duckdb__as_utc_timestamp(column) -%}
     timezone('UTC', {{ column }})
 {%- endmacro %}
 
-{% macro snowflake__to_utc_time(column) -%}
+{% macro snowflake__as_utc_timestamp(column) -%}
     convert_timezone('UTC', {{ column }})::timestamp_ntz
+{%- endmacro %}
+
+
+{# ---- Plain UTC timestamp (from as_utc_timestamp) to Europe/Berlin wall-clock time, CET/CEST aware ---- #}
+{% macro to_berlin_time(utc_column) -%}
+    {{ return(adapter.dispatch('to_berlin_time')(utc_column)) }}
+{%- endmacro %}
+
+{% macro duckdb__to_berlin_time(utc_column) -%}
+    timezone('Europe/Berlin', timezone('UTC', {{ utc_column }}))
+{%- endmacro %}
+
+{% macro snowflake__to_berlin_time(utc_column) -%}
+    convert_timezone('UTC', 'Europe/Berlin', {{ utc_column }})::timestamp_ntz
 {%- endmacro %}
 
 

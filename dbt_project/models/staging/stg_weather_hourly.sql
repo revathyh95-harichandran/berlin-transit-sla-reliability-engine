@@ -15,7 +15,7 @@
 with real_weather as (
 
     select
-        hour_utc,
+        {{ as_utc_timestamp('hour_utc') }} as hour_utc,
         temperature_c,
         precipitation_mm,
         rain_mm,
@@ -24,7 +24,7 @@ with real_weather as (
         wind_gusts_kmh,
         weather_code,
         is_forecast,
-        fetched_at_utc,
+        {{ as_utc_timestamp('fetched_at_utc') }} as fetched_at_utc,
         false as is_synthetic
     from {{ source('transit', 'weather_hourly') }}
 
@@ -33,7 +33,7 @@ with real_weather as (
 synthetic_weather as (
 
     select
-        hour_utc,
+        {{ as_utc_timestamp('hour_utc') }} as hour_utc,
         temperature_c,
         precipitation_mm,
         rain_mm,
@@ -42,7 +42,7 @@ synthetic_weather as (
         wind_gusts_kmh,
         weather_code,
         is_forecast,
-        cast(null as timestamp with time zone) as fetched_at_utc,
+        cast(null as timestamp) as fetched_at_utc,
         coalesce(is_synthetic, true) as is_synthetic
     from {{ source('transit', 'synthetic_weather_hourly') }}
 
@@ -106,7 +106,7 @@ latest_per_hour as (
 converted as (
 
     select
-        {{ to_utc_time('hour_utc') }} as hour_utc,
+        hour_utc,
         {{ to_berlin_time('hour_utc') }} as hour_berlin,
         temperature_c,
         precipitation_mm,
