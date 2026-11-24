@@ -1,0 +1,10 @@
+# Loader settings (no secrets here: credentials come from environment variables).
+
+[runtime]
+# Do not send anonymous usage statistics to the tool vendor.
+dlthub_telemetry = false
+log_level = "WARNING"
+
+[normalize]
+# Keep column names in plain snake_case (e.g. poll_slot_utc).
+naming = "snake_case"
