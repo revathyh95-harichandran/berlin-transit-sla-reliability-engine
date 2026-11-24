@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------
+# Secrets (never commit credentials)
+# ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+profiles.yml
+!profiles.yml.example
+
+# ---------------------------------------------------------------
+# Local databases and data files (keep the repo under 5 MB)
+# ---------------------------------------------------------------
+*.duckdb*
+data/raw/*
+data/staging/*
+*.csv
+*.parquet
+
+# ---------------------------------------------------------------
+# Python environments and caches
+# ---------------------------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ---------------------------------------------------------------
+# Build artefacts
+# ---------------------------------------------------------------
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# ---------------------------------------------------------------
+# Logs (pipeline_health.json stays trackable)
+# ---------------------------------------------------------------
+logs/*.log
+
+# ---------------------------------------------------------------
+# Keep empty-folder placeholders
+# ---------------------------------------------------------------
+!.gitkeep
+
+# --- PUBLIC PORTFOLIO BLOCK (private files) ---
+CLAUDE.md
+.claude/
+.claudeignore
+docs/project_tracker.md
+docs/study_guide.md
+# --- END PUBLIC PORTFOLIO BLOCK ---

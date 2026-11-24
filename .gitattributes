@@ -1,0 +1,10 @@
+# Normalise all text files to LF so Windows and Linux CI see identical files
+* text=auto eol=lf
+
+# Binary files: never touch line endings
+*.pptx binary
+*.pbix binary
+*.png  binary
+*.jpg  binary
+*.duckdb binary
+*.parquet binary
