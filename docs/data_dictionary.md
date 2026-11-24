@@ -221,3 +221,10 @@ Synthetic rows have no poll logbook, so their poll and logbook columns are empty
 `DBT_HASH_SALT` environment variable). Think of a library card number: two records can be matched by it, but nobody
 can read a name from it. The raw IDs are not present in any Gold table, and the quarantine payload (which holds them)
 is not carried out of RAW.
+
+## 7. Where things live
+
+- **Dev (DuckDB):** one catalog, schemas `dev_staging` (Silver) and `dev_marts` (Gold).
+- **Prod (Snowflake):** Silver and the holiday seed live in `STAGING.SILVER`, Gold lives in `PROD.MARTS`
+  (RAW -> STAGING -> PROD). Every Gold model is a physical table, so `BI_READER_ROLE`, which can only read PROD,
+  never touches a Silver object.
