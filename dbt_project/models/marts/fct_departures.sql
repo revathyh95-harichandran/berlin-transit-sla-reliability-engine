@@ -25,13 +25,36 @@
       * Backfill: with --vars '{run_date: 2026-11-20}' the whole Berlin calendar day is rebuilt.
         Re-running any of this never creates duplicates, because departure_sk is the merge key.
 
+    Read cost: stg_departures is itself an incremental table that only reads recent raw polls, so this
+    model starts from a small, already de-duplicated table. Its own lookback filter is a second, cheap guard.
+
     Join safety: each dimension is joined on its unique key (tested), so joins cannot
     multiply rows. A singular test checks that this table holds exactly as many rows as stg_departures.
 */
 
 with departures as (
 
-    select * from {{ ref('stg_departures') }}
+    select
+        departure_sk,
+        departure_key,
+        station_id,
+        stop_id,
+        line_name,
+        product,
+        trip_id_hash,
+        vehicle_trip_number_hash,
+        planned_departure_utc,
+        planned_departure_berlin,
+        predicted_departure_berlin,
+        planned_date_berlin,
+        planned_hour_berlin,
+        polled_at_utc,
+        delay_seconds,
+        is_cancelled,
+        has_realtime,
+        is_sla_breach,
+        is_synthetic
+    from {{ ref('stg_departures') }}
 
 ),
 
@@ -50,7 +73,26 @@ with departures as (
 
 rows_to_process as (
 
-    select departures.*
+    select
+        departures.departure_sk,
+        departures.departure_key,
+        departures.station_id,
+        departures.stop_id,
+        departures.line_name,
+        departures.product,
+        departures.trip_id_hash,
+        departures.vehicle_trip_number_hash,
+        departures.planned_departure_utc,
+        departures.planned_departure_berlin,
+        departures.predicted_departure_berlin,
+        departures.planned_date_berlin,
+        departures.planned_hour_berlin,
+        departures.polled_at_utc,
+        departures.delay_seconds,
+        departures.is_cancelled,
+        departures.has_realtime,
+        departures.is_sla_breach,
+        departures.is_synthetic
     from departures
     {% if is_incremental() %}
         {% if var('run_date', none) is not none %}

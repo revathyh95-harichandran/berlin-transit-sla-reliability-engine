@@ -1,3 +1,12 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key='departure_sk',
+        incremental_strategy='merge',
+        on_schema_change='append_new_columns'
+    )
+}}
+
 /*
     stg_departures (Silver)
 
@@ -13,6 +22,18 @@
       4. Replace trip_id and vehicle_trip_number with salted SHA-256 hashes, so the raw IDs
          never travel into Gold. Like swapping a passenger name for a locker number.
       5. Derive has_realtime and is_sla_breach exactly as ADR-002 defines them.
+
+    Why this is an incremental table and not a view (cost design):
+      The "latest prediction wins" window function has to read every raw row of the departures it
+      ranks. As a view, every model that used it re-scanned ALL of RAW on every run. Now the raw read
+      is filtered by poll time BEFORE the window function, like checking only today's mail instead of
+      re-sorting the whole archive. A normal run reads only raw polls newer than the newest stored
+      poll minus `lookback_hours` (6 h). A departure stays visible in polls for about 30-45 minutes and
+      dbt runs every 3 hours, so 6 hours covers one full schedule gap plus a skipped run as margin.
+      The newest reading of any departure is always inside the window, so the MERGE on departure_sk
+      overwrites the older stored reading. Everything downstream reads this small table.
+      Backfill: --vars '{run_date: 2026-11-20}' re-reads all polls for departures planned on that
+      Berlin day. A full refresh rebuilds everything.
 */
 
 {% set departure_columns = [
@@ -30,6 +51,21 @@ with real_departures as (
         {% endfor -%}
         false as is_synthetic
     from {{ source('transit', 'vbb_departures') }}
+    {%- if is_incremental() %}
+        where
+            {%- if var('run_date', none) is not none %}
+                cast({{ to_berlin_time('planned_departure') }} as date) = cast('{{ var("run_date") }}' as date)
+            {%- else %}
+                {{ to_utc_time('polled_at_utc') }} >= coalesce(
+                    (
+                        select {{ add_hours('max(stored.polled_at_utc)', '-' ~ var('lookback_hours')) }}
+                        from {{ this }} as stored
+                        where stored.is_synthetic = false
+                    ),
+                    cast('1900-01-01' as timestamp)
+                )
+            {%- endif %}
+    {%- endif %}
 
 ),
 
@@ -42,21 +78,50 @@ synthetic_departures as (
         {% endfor -%}
         coalesce(is_synthetic, true) as is_synthetic
     from {{ source('transit', 'synthetic_departures') }}
+    {%- if is_incremental() %}
+        where
+            {%- if var('run_date', none) is not none %}
+                cast({{ to_berlin_time('planned_departure') }} as date) = cast('{{ var("run_date") }}' as date)
+            {%- else %}
+        {{ to_utc_time('polled_at_utc') }} >= coalesce(
+            (
+                select {{ add_hours('max(stored.polled_at_utc)', '-' ~ var('lookback_hours')) }}
+                from {{ this }} as stored
+                where stored.is_synthetic = true
+            ),
+            cast('1900-01-01' as timestamp)
+        )
+        {%- endif %}
+    {%- endif %}
 
 ),
 
 all_readings as (
 
-    select * from real_departures
+    select
+        {% for column in departure_columns -%}
+            {{ column }},
+        {% endfor -%}
+        is_synthetic
+    from real_departures
     union all
-    select * from synthetic_departures
+    select
+        {% for column in departure_columns -%}
+            {{ column }},
+        {% endfor -%}
+        is_synthetic
+    from synthetic_departures
 
 ),
 
 latest_reading as (
 
     -- One row per departure: the reading from the newest poll wins.
-    select *
+    select
+        {% for column in departure_columns -%}
+            {{ column }},
+        {% endfor -%}
+        is_synthetic
     from all_readings
     qualify row_number() over (
         partition by departure_key, station_id, is_synthetic

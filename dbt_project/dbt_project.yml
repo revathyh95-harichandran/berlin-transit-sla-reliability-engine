@@ -21,7 +21,8 @@ vars:
   # SLA rule from ADR-002: a departure is a breach when it is more than 300 seconds (5 minutes) late.
   sla_breach_seconds: 300
   # Incremental runs re-read this many hours of polls so updated predictions overwrite older ones.
-  lookback_hours: 3
+  # 6 = the 3-hour dbt schedule + a departure staying visible in polls for ~45 min + margin for one skipped run.
+  lookback_hours: 6
   # Peak hours = the busiest 25 % of hours of the day (ADR-002).
   peak_hour_top_share: 0.25
 

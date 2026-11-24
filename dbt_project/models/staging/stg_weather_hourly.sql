@@ -50,16 +50,51 @@ synthetic_weather as (
 
 all_weather as (
 
-    select * from real_weather
+    select
+        hour_utc,
+        temperature_c,
+        precipitation_mm,
+        rain_mm,
+        snowfall_cm,
+        wind_speed_kmh,
+        wind_gusts_kmh,
+        weather_code,
+        is_forecast,
+        fetched_at_utc,
+        is_synthetic
+    from real_weather
     union all
-    select * from synthetic_weather
+    select
+        hour_utc,
+        temperature_c,
+        precipitation_mm,
+        rain_mm,
+        snowfall_cm,
+        wind_speed_kmh,
+        wind_gusts_kmh,
+        weather_code,
+        is_forecast,
+        fetched_at_utc,
+        is_synthetic
+    from synthetic_weather
 
 ),
 
 latest_per_hour as (
 
     -- If an hour was loaded twice (forecast, then measured), the newest fetch wins.
-    select *
+    select
+        hour_utc,
+        temperature_c,
+        precipitation_mm,
+        rain_mm,
+        snowfall_cm,
+        wind_speed_kmh,
+        wind_gusts_kmh,
+        weather_code,
+        is_forecast,
+        fetched_at_utc,
+        is_synthetic
     from all_weather
     qualify row_number() over (
         partition by hour_utc, is_synthetic

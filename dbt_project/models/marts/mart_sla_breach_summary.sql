@@ -1,3 +1,12 @@
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='delete+insert',
+        unique_key='date_key',
+        on_schema_change='append_new_columns'
+    )
+}}
+
 /*
     mart_sla_breach_summary (Gold mart)
 
@@ -13,11 +22,59 @@
       * rated_departures       : not cancelled and has a delay value. This is the breach-rate denominator.
     breach_rate = breach_departures / rated_departures (empty when nothing was rated).
     Real and synthetic data are never mixed: is_synthetic is part of the grain.
+
+    How it loads (incremental, delete+insert by date_key): a normal run finds the Berlin dates that have
+    departures polled in the last `lookback_hours`, deletes those whole days from this table and rebuilds
+    them from the fact. Older days are not touched, like re-adding only this week's till receipts instead of
+    the whole year. --vars '{run_date: ...}' rebuilds that one day; --full-refresh rebuilds everything.
+    Known trade-off: peak-hour flags of old days are only refreshed on a full refresh.
 */
 
-with departures as (
+with newest_poll as (  -- noqa: ST03
 
-    select * from {{ ref('fct_departures') }}
+    -- Newest poll stored per data source; only used by incremental runs.
+    select
+        is_synthetic,
+        max(last_polled_at_utc) as newest_polled_at_utc
+    from {{ ref('fct_departures') }}
+    group by is_synthetic
+
+),
+
+affected_dates as (  -- noqa: ST03
+
+    -- Berlin dates touched by recent polls (or the single backfill day); only used by incremental runs.
+    {% if var('run_date', none) is not none %}
+        select cast(replace('{{ var("run_date") }}', '-', '') as integer) as date_key
+    {% else %}
+        select distinct recent.date_key
+        from {{ ref('fct_departures') }} as recent
+        inner join newest_poll
+            on recent.is_synthetic = newest_poll.is_synthetic
+        where recent.last_polled_at_utc >= {{ add_hours('newest_poll.newest_polled_at_utc', '-' ~ var('lookback_hours')) }}
+    {% endif %}
+
+),
+
+departures as (
+
+    select
+        fact.date_key,
+        fact.hour_of_day,
+        fact.bezirk_key,
+        fact.line_key,
+        fact.weather_hour_key,
+        fact.hour_profile_key,
+        fact.is_cancelled,
+        fact.has_realtime,
+        fact.is_sla_breach,
+        fact.delay_minutes,
+        fact.is_synthetic
+    from {{ ref('fct_departures') }} as fact
+    {% if is_incremental() %}
+        inner join affected_dates
+            on fact.date_key = affected_dates.date_key
+    {% endif %}
 
 )
 

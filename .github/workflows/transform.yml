@@ -1,7 +1,8 @@
-# Scheduled production transform: builds the Silver and Gold layers in Snowflake once an hour.
+# Scheduled production transform: builds the Silver and Gold layers in Snowflake every 3 hours.
 #
 # Timing: the collector (collect-transit-data) polls every 15 minutes at :00, :15, :30 and :45.
-# This job starts at :20 past the hour, so it reads data that the collector has just written.
+# This job starts at :20 past every third hour (00:20, 03:20, ... UTC). Power BI uses Import Mode,
+# so 3-hourly freshness is enough and keeps the warehouse asleep most of the day (credit saving).
 #
 # Safety: if the Snowflake key secret is not set yet, the first step prints a notice and every
 # later step is skipped. The run is then green but does nothing, which is the intended behaviour
@@ -11,7 +12,7 @@ name: transform-prod
 
 on:
   schedule:
-    - cron: "20 * * * *"
+    - cron: "20 */3 * * *"
   workflow_dispatch:
 
 # Only one production transform at a time. A second run waits in the queue instead of racing the first.
