@@ -1,0 +1,7 @@
+# Lightweight dependencies for the scheduled collector only (no dbt, no charting).
+# Versions match requirements.txt.
+dlt[snowflake]==1.32.0
+snowflake-connector-python==5.2.0
+httpx==0.28.1
+pydantic==2.14.4
+Faker==40.63.0

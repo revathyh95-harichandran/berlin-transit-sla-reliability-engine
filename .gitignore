@@ -53,3 +53,6 @@ CLAUDE.md
 docs/project_tracker.md
 docs/study_guide.md
 # --- END PUBLIC PORTFOLIO BLOCK ---
+
+# Loader secrets (credentials stay in environment variables / CI secrets)
+.dlt/secrets.toml

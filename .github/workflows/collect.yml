@@ -1,0 +1,74 @@
+# Scheduled collector: polls VBB departures and Berlin weather every 15 minutes
+# and loads them into Snowflake RAW. Runs in the cloud, so no laptop is needed.
+#
+# Notes:
+#   * GitHub cron runs in UTC. Polling is 24/7, so time zones do not matter here.
+#   * GitHub may start scheduled runs a few minutes late or skip runs at busy times.
+#     Each row stores the real poll time (polled_at_utc), and the 30-minute
+#     departure window covers late starts of up to 15 minutes.
+#   * Scheduled workflows only run from the repository's default branch.
+
+name: collect-transit-data
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      load_bezirke:
+        description: "Also (re)load the 12 Bezirk boundaries"
+        type: boolean
+        default: false
+      load_synthetic:
+        description: "Also (re)load the labelled 14-day synthetic dataset"
+        type: boolean
+        default: false
+
+# Never run two collectors at the same time; queue the next one instead.
+concurrency:
+  group: collect-transit-data
+  cancel-in-progress: false
+
+# The job only needs to read the code.
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      RUNTIME__DLTHUB_TELEMETRY: "false"
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-ingest.txt
+
+      - name: Install collector dependencies
+        run: pip install -r requirements-ingest.txt
+
+      - name: Poll VBB departures
+        run: python -m ingestion.vbb_departures --target prod
+
+      - name: Load Berlin weather
+        # Weather should still load even if VBB had a bad moment.
+        if: ${{ !cancelled() }}
+        run: python -m ingestion.weather --target prod
+
+      - name: Load Bezirk boundaries (manual runs only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.load_bezirke }}
+        run: python -m ingestion.bezirke --target prod
+
+      - name: Load synthetic history (manual runs only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.load_synthetic }}
+        run: python -m ingestion.synthetic_history --target prod
