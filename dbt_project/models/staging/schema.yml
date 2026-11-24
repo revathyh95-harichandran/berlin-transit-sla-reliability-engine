@@ -51,22 +51,30 @@ models:
         description: "Predicted departure as Berlin wall-clock time. Empty when there is no realtime data."
       - name: polled_at_utc
         description: "UTC time of the poll whose reading was kept (the latest one)."
+        data_tests: [not_null]
       - name: planned_date_berlin
         description: "Berlin calendar date of the planned departure."
+        data_tests: [not_null]
       - name: planned_hour_berlin
         description: "Berlin hour of day (0-23) of the planned departure."
+        data_tests: [not_null]
       - name: polled_date_berlin
         description: "Berlin calendar date of the kept poll."
+        data_tests: [not_null]
       - name: delay_seconds
         description: "Delay in seconds (negative = early). Empty when there is no realtime data."
       - name: is_cancelled
         description: "True when VBB marked the departure as cancelled."
+        data_tests: [not_null]
       - name: has_realtime
         description: "True when a delay value exists (delay_seconds is not empty)."
+        data_tests: [not_null]
       - name: is_sla_breach
         description: "True when the departure is not cancelled and the delay is more than 300 seconds."
+        data_tests: [not_null]
       - name: is_synthetic
         description: "True for the generated practice dataset, false for real VBB data."
+        data_tests: [not_null]
 
   - name: stg_weather_hourly
     description: >
@@ -81,10 +89,13 @@ models:
         data_tests: [not_null]
       - name: hour_berlin
         description: "Start of the weather hour as Berlin wall-clock time."
+        data_tests: [not_null]
       - name: date_berlin
         description: "Berlin calendar date of the hour."
+        data_tests: [not_null]
       - name: hour_of_day_berlin
         description: "Berlin hour of day (0-23)."
+        data_tests: [not_null]
       - name: temperature_c
         description: "Air temperature in degrees Celsius."
       - name: precipitation_mm

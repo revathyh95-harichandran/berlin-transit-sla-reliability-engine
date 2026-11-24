@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "overall_status": "AMBER",
+  "overall_reasons": [
+    "upstream ingestion: Ingestion was skipped in this run, so RAW was not refreshed."
+  ],
+  "generated_at_utc": "2026-11-24T21:30:42+00:00",
+  "generated_at_berlin": "2026-11-24T22:30:42+01:00",
+  "dbt_results_generated_at": "2026-11-24T21:30:41.506074Z",
+  "stages": {
+    "upstream_ingestion": {
+      "status": "AMBER",
+      "reason": "Ingestion was skipped in this run, so RAW was not refreshed.",
+      "steps": {
+        "dlt_ingest": "skipped"
+      }
+    },
+    "midstream_dbt": {
+      "status": "GREEN",
+      "reason": "All dbt tests passed.",
+      "steps": {
+        "dbt_run": "success",
+        "dbt_test": "success"
+      },
+      "tests": {
+        "total": 112,
+        "passed": 112,
+        "warned": 0,
+        "failed": 0,
+        "skipped": 0,
+        "other": 0
+      }
+    },
+    "downstream_bi_refresh": {
+      "status": "GREEN",
+      "reason": "Power BI refresh was only logged (DRY_RUN is on). Nothing was sent to Power BI.",
+      "steps": {
+        "trigger_powerbi_import_refresh": "dry_run"
+      },
+      "refresh_outcome": "dry_run",
+      "triggered": false,
+      "blocked": false
+    }
+  },
+  "tests": {
+    "total": 112,
+    "passed": 112,
+    "warned": 0,
+    "failed": 0,
+    "skipped": 0,
+    "other": 0
+  }
+}

@@ -77,20 +77,26 @@ models:
         description: "Predicted departure in Berlin wall-clock time (empty without realtime)."
       - name: hour_of_day
         description: "Berlin hour of day (0-23) of the planned departure."
+        data_tests: [not_null]
       - name: last_polled_at_utc
         description: "UTC time of the newest poll that saw this departure. Drives the incremental window."
+        data_tests: [not_null]
       - name: delay_seconds
-        description: "Delay in seconds (negative = early). Empty without realtime."
+        description: "Delay in seconds (negative = early). Empty without realtime. Bounds are checked in a singular test."
       - name: delay_minutes
         description: "delay_seconds / 60, rounded to 2 decimals."
       - name: is_cancelled
         description: "True when VBB marked the departure cancelled. Counted separately from breaches."
+        data_tests: [not_null]
       - name: has_realtime
         description: "True when a delay value exists."
+        data_tests: [not_null]
       - name: is_sla_breach
         description: "True when not cancelled and delay_seconds > 300."
+        data_tests: [not_null]
       - name: is_synthetic
         description: "True for the generated practice dataset, always reported separately."
+        data_tests: [not_null]
 
   - name: dim_date
     description: "GRAIN: one row per Berlin calendar day, 2025-01-01 to 2027-12-31, with weekend and public holiday flags."
@@ -141,6 +147,11 @@ models:
                 values: ["suburban", "subway", "tram", "bus"]
       - name: mode_label
         description: "Rider-friendly mode: S-Bahn, U-Bahn, Tram or Bus."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["S-Bahn", "U-Bahn", "Tram", "Bus"]
 
   - name: dim_stop
     description: "GRAIN: one row per polled station and stop (station_id + stop_id), with its Bezirk found by point-in-polygon."
@@ -247,6 +258,7 @@ models:
         description: "PERCENT_RANK of the average within its source and day type: 0 = quietest hour, 1 = busiest."
       - name: is_peak_hour
         description: "True when busyness_percent_rank >= 0.75 (top 25 % of hours)."
+        data_tests: [not_null]
 
   - name: mart_sla_breach_summary
     description: >
@@ -288,16 +300,21 @@ models:
         description: "True when the hour is a data-driven peak hour for this source and day type."
       - name: scheduled_departures
         description: "All departures in the group."
+        data_tests: [not_null]
       - name: cancelled_departures
         description: "Departures VBB marked cancelled."
+        data_tests: [not_null]
       - name: no_realtime_departures
         description: "Not cancelled, but no delay value. Excluded from the breach rate."
+        data_tests: [not_null]
       - name: rated_departures
         description: "Not cancelled and with a delay value. The breach-rate denominator."
+        data_tests: [not_null]
       - name: breach_departures
         description: "Departures more than 300 seconds late."
+        data_tests: [not_null]
       - name: breach_rate
-        description: "breach_departures / rated_departures. Empty when nothing was rated."
+        description: "breach_departures / rated_departures. Empty when nothing was rated. Range checked in a singular test."
       - name: avg_delay_minutes
         description: "Average delay in minutes over non-cancelled departures with realtime data."
 
@@ -317,6 +334,7 @@ models:
         description: "True for the synthetic practice dataset."
       - name: is_partial_day
         description: "True for today (Berlin) or later, whose coverage is still growing."
+        data_tests: [not_null]
       - name: polls_expected
         description: "96 polls x number of stations (real data only)."
       - name: polls_logged
