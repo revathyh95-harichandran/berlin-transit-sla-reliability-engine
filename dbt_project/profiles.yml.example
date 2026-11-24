@@ -1,0 +1,45 @@
+# -----------------------------------------------------------------------------
+# dbt connection profiles for the Berlin Transit SLA Reliability Engine.
+# Copy this file to profiles.yml (git-ignored) and keep real values out of git.
+#
+# Two targets, like two train lines that share the same timetable:
+#   dev  = local DuckDB file, costs EUR 0, used for everyday development
+#   prod = Snowflake (AWS eu-central-1, Frankfurt), used for the scheduled run
+#
+# Run from inside dbt_project/:
+#   dbt build                 -> dev (default)
+#   dbt build --target prod   -> Snowflake
+# -----------------------------------------------------------------------------
+berlin_transit:
+  target: dev
+  outputs:
+
+    # --- Local development: a single file on my laptop ---------------------
+    dev:
+      type: duckdb
+      # Path to the DuckDB file. dbt runs from inside dbt_project/, so the
+      # default points one folder up. Override with DBT_DUCKDB_PATH if needed.
+      path: "{{ env_var('DBT_DUCKDB_PATH', '../data/berlin_transit.duckdb') }}"
+      # "spatial" adds map functions (distance, points in polygons).
+      extensions:
+        - spatial
+      threads: 4
+      schema: dev
+
+    # --- Production: Snowflake, key-pair login (no password) ---------------
+    # Key-pair login is like a staff badge instead of a typed password.
+    # Everything secret comes from environment variables, never from this file.
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_TRANSFORM_USER', 'SVC_TRANSFORM') }}"
+      # The private key text itself (PEM, including the BEGIN/END lines).
+      # In GitHub Actions it is stored as the secret SNOWFLAKE_TRANSFORM_PRIVATE_KEY.
+      private_key: "{{ env_var('SNOWFLAKE_TRANSFORM_PRIVATE_KEY') }}"
+      role: TRANSFORM_ROLE
+      warehouse: TRANSIT_WH
+      database: PROD
+      schema: marts
+      threads: 4
+      # Tag shown in Snowflake's query history so dbt queries are easy to find.
+      query_tag: berlin_transit_dbt
