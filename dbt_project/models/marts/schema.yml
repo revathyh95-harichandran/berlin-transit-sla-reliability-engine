@@ -1,0 +1,367 @@
+version: 2
+
+models:
+  - name: fct_departures
+    description: >
+      GRAIN: one row per departure event, i.e. one planned departure of one trip from one stop seen from one
+      polled station (departure_key + station_id), per data source (real or synthetic). Incremental MERGE on
+      departure_sk with a lookback window, so the latest prediction always wins. KPI formulas: SLA breach =
+      delay_seconds > 300 and not cancelled; has_realtime = delay_seconds is not empty.
+    columns:
+      - name: departure_sk
+        description: "Surrogate key of the departure event. Primary key and merge key."
+        data_tests: [unique, not_null]
+      - name: departure_key
+        description: "Collector fingerprint of trip + stop + planned time."
+        data_tests: [not_null]
+      - name: station_id
+        description: "The polled station."
+        data_tests: [not_null]
+      - name: date_key
+        description: "Foreign key to dim_date (Berlin date of the planned departure, yyyymmdd)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: line_key
+        description: "Foreign key to dim_line."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_line')
+                field: line_key
+      - name: stop_key
+        description: "Foreign key to dim_stop."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_stop')
+                field: stop_key
+      - name: bezirk_key
+        description: "Foreign key to dim_bezirk ('000' = Unknown)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_bezirk')
+                field: bezirk_key
+      - name: weather_hour_key
+        description: "Foreign key to dim_weather_hour ('-1' = no weather reading for that hour)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_weather_hour')
+                field: weather_hour_key
+      - name: hour_profile_key
+        description: "Foreign key to dim_hour_profile (data source + day type + hour of day)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_hour_profile')
+                field: hour_profile_key
+      - name: trip_id_hash
+        description: "Salted SHA-256 of the trip ID. Degenerate dimension for counting distinct trips."
+      - name: vehicle_trip_number_hash
+        description: "Salted SHA-256 of the vehicle trip number."
+      - name: planned_departure_utc
+        description: "Planned departure time in UTC."
+      - name: planned_departure_berlin
+        description: "Planned departure in Berlin wall-clock time."
+      - name: predicted_departure_berlin
+        description: "Predicted departure in Berlin wall-clock time (empty without realtime)."
+      - name: hour_of_day
+        description: "Berlin hour of day (0-23) of the planned departure."
+      - name: last_polled_at_utc
+        description: "UTC time of the newest poll that saw this departure. Drives the incremental window."
+      - name: delay_seconds
+        description: "Delay in seconds (negative = early). Empty without realtime."
+      - name: delay_minutes
+        description: "delay_seconds / 60, rounded to 2 decimals."
+      - name: is_cancelled
+        description: "True when VBB marked the departure cancelled. Counted separately from breaches."
+      - name: has_realtime
+        description: "True when a delay value exists."
+      - name: is_sla_breach
+        description: "True when not cancelled and delay_seconds > 300."
+      - name: is_synthetic
+        description: "True for the generated practice dataset, always reported separately."
+
+  - name: dim_date
+    description: "GRAIN: one row per Berlin calendar day, 2025-01-01 to 2027-12-31, with weekend and public holiday flags."
+    columns:
+      - name: date_key
+        description: "Integer yyyymmdd. Primary key."
+        data_tests: [unique, not_null]
+      - name: date
+        description: "The calendar date."
+        data_tests: [unique, not_null]
+      - name: year_number
+        description: "Calendar year."
+      - name: month_number
+        description: "Calendar month (1-12)."
+      - name: day_of_week_name
+        description: "Monday ... Sunday."
+      - name: iso_day_number
+        description: "ISO weekday, Monday = 1 ... Sunday = 7."
+      - name: is_weekend
+        description: "True on Saturday and Sunday."
+      - name: is_public_holiday
+        description: "True on a Berlin public holiday (from the berlin_public_holidays seed)."
+      - name: public_holiday_name
+        description: "English name of the holiday, empty on normal days."
+      - name: day_type
+        description: "weekday, or weekend_or_holiday (Saturday, Sunday or public holiday)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["weekday", "weekend_or_holiday"]
+
+  - name: dim_line
+    description: "GRAIN: one row per transit line and mode (line_name + product)."
+    columns:
+      - name: line_key
+        description: "Surrogate key. Primary key."
+        data_tests: [unique, not_null]
+      - name: line_name
+        description: "Public line name."
+        data_tests: [not_null]
+      - name: product
+        description: "VBB product code."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["suburban", "subway", "tram", "bus"]
+      - name: mode_label
+        description: "Rider-friendly mode: S-Bahn, U-Bahn, Tram or Bus."
+
+  - name: dim_stop
+    description: "GRAIN: one row per polled station and stop (station_id + stop_id), with its Bezirk found by point-in-polygon."
+    columns:
+      - name: stop_key
+        description: "Surrogate key of station_id + stop_id. Primary key."
+        data_tests: [unique, not_null]
+      - name: stop_id
+        description: "VBB stop ID."
+        data_tests: [not_null]
+      - name: stop_name
+        description: "Stop name."
+      - name: latitude
+        description: "Average latitude of the stop."
+      - name: longitude
+        description: "Average longitude of the stop."
+      - name: station_id
+        description: "The polled station the stop belongs to."
+        data_tests: [not_null]
+      - name: bezirk_key
+        description: "Foreign key to dim_bezirk ('000' when no district outline contains the stop)."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_bezirk')
+                field: bezirk_key
+      - name: bezirk_name
+        description: "District name, or Unknown."
+
+  - name: dim_bezirk
+    description: "GRAIN: one row per Berlin district: the 12 official Bezirke plus one Unknown row."
+    columns:
+      - name: bezirk_key
+        description: "District code, '000' for Unknown. Primary key."
+        data_tests: [unique, not_null]
+      - name: bezirk_code
+        description: "Official district code."
+      - name: bezirk_name
+        description: "District name."
+        data_tests: [not_null]
+
+  - name: dim_weather_hour
+    description: "GRAIN: one row per hour of weather per data source, plus one 'unknown' row for hours without a reading."
+    columns:
+      - name: weather_hour_key
+        description: "Surrogate key. '-1' is the unknown row. Primary key."
+        data_tests: [unique, not_null]
+      - name: hour_utc
+        description: "Start of the hour in UTC."
+      - name: hour_berlin
+        description: "Start of the hour in Berlin time."
+      - name: date_berlin
+        description: "Berlin calendar date."
+      - name: hour_of_day_berlin
+        description: "Berlin hour of day (0-23)."
+      - name: weather_condition
+        description: "snow, rain, windy, clear (ADR-002 rules) or unknown."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["snow", "rain", "windy", "clear", "unknown"]
+      - name: temperature_c
+        description: "Air temperature in degrees Celsius."
+      - name: precipitation_mm
+        description: "Precipitation in millimetres."
+      - name: rain_mm
+        description: "Rain in millimetres."
+      - name: snowfall_cm
+        description: "Snowfall in centimetres."
+      - name: wind_speed_kmh
+        description: "Wind speed in km/h."
+      - name: wind_gusts_kmh
+        description: "Wind gusts in km/h."
+      - name: is_forecast
+        description: "True while the hour is still a forecast."
+      - name: is_synthetic
+        description: "True for the synthetic practice weather."
+
+  - name: dim_hour_profile
+    description: >
+      GRAIN: one row per data source x day type x hour of day (0-23). Data-driven rush hours: an hour is a peak
+      hour when its PERCENT_RANK of average scheduled departures per day (within its source and day type) is
+      in the top 25 %.
+    columns:
+      - name: hour_profile_key
+        description: "Surrogate key. Primary key."
+        data_tests: [unique, not_null]
+      - name: is_synthetic
+        description: "True for the synthetic dataset's own profile."
+      - name: day_type
+        description: "weekday or weekend_or_holiday."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["weekday", "weekend_or_holiday"]
+      - name: hour_of_day
+        description: "Berlin hour of day (0-23)."
+      - name: avg_scheduled_departures
+        description: "Average scheduled departures in this hour, per day with data, across all stations."
+      - name: busyness_percent_rank
+        description: "PERCENT_RANK of the average within its source and day type: 0 = quietest hour, 1 = busiest."
+      - name: is_peak_hour
+        description: "True when busyness_percent_rank >= 0.75 (top 25 % of hours)."
+
+  - name: mart_sla_breach_summary
+    description: >
+      GRAIN: one row per Berlin date x hour of day x Bezirk x line x weather condition x is_synthetic. Every
+      departure is in exactly one bucket: cancelled, no realtime, or rated. KPI: breach_rate = breach_departures /
+      rated_departures. Real and synthetic data are never mixed.
+    columns:
+      - name: summary_key
+        description: "Surrogate key of the grain. Primary key."
+        data_tests: [unique, not_null]
+      - name: date
+        description: "Berlin calendar date."
+      - name: date_key
+        description: "Foreign key to dim_date."
+      - name: hour_of_day
+        description: "Berlin hour of day (0-23)."
+      - name: bezirk_name
+        description: "District of the stop (or Unknown)."
+      - name: line_name
+        description: "Line name."
+      - name: mode_label
+        description: "S-Bahn, U-Bahn, Tram or Bus."
+      - name: weather_condition
+        description: "Weather bucket for the hour."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["snow", "rain", "windy", "clear", "unknown"]
+      - name: is_synthetic
+        description: "True for the synthetic practice dataset."
+      - name: day_type
+        description: "weekday or weekend_or_holiday."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["weekday", "weekend_or_holiday"]
+      - name: is_peak_hour
+        description: "True when the hour is a data-driven peak hour for this source and day type."
+      - name: scheduled_departures
+        description: "All departures in the group."
+      - name: cancelled_departures
+        description: "Departures VBB marked cancelled."
+      - name: no_realtime_departures
+        description: "Not cancelled, but no delay value. Excluded from the breach rate."
+      - name: rated_departures
+        description: "Not cancelled and with a delay value. The breach-rate denominator."
+      - name: breach_departures
+        description: "Departures more than 300 seconds late."
+      - name: breach_rate
+        description: "breach_departures / rated_departures. Empty when nothing was rated."
+      - name: avg_delay_minutes
+        description: "Average delay in minutes over non-cancelled departures with realtime data."
+
+  - name: mart_data_quality
+    description: >
+      GRAIN: one row per Berlin date x data source (is_synthetic). Collector reliability: polls expected versus
+      logged, coverage % = (ok + ok_empty) / expected (96 polls per station per day), rows received, valid,
+      quarantined and de-duplicated, and quarantine counts by simplified reason. Synthetic rows have no poll columns.
+    columns:
+      - name: quality_key
+        description: "Surrogate key of date + source. Primary key."
+        data_tests: [unique, not_null]
+      - name: date
+        description: "Berlin calendar date of the poll."
+        data_tests: [not_null]
+      - name: is_synthetic
+        description: "True for the synthetic practice dataset."
+      - name: is_partial_day
+        description: "True for today (Berlin) or later, whose coverage is still growing."
+      - name: polls_expected
+        description: "96 polls x number of stations (real data only)."
+      - name: polls_logged
+        description: "Polls that wrote a logbook row."
+      - name: polls_ok
+        description: "Polls that returned departures."
+      - name: polls_ok_empty
+        description: "Polls that succeeded with 0 departures (normal at night)."
+      - name: polls_error
+        description: "Polls that failed after retries."
+      - name: coverage_pct
+        description: "100 x (polls_ok + polls_ok_empty) / polls_expected."
+      - name: rows_received
+        description: "Departures the API returned (real data only)."
+      - name: rows_valid
+        description: "Departures that passed the data contract (real data only)."
+      - name: rows_quarantined
+        description: "Records rejected into quarantine."
+      - name: duplicates_dropped
+        description: "Exact duplicates dropped at collection time (real data only)."
+      - name: departures_in_silver
+        description: "Departures left in Silver after de-duplication, by the day they were last polled."
+      - name: quarantined_missing_planned_time
+        description: "Rejected: planned departure missing or unreadable."
+      - name: quarantined_implausible_delay
+        description: "Rejected: delay outside the plausible range."
+      - name: quarantined_out_of_scope_product
+        description: "Rejected: mode not S-Bahn, U-Bahn, Tram or Bus."
+      - name: quarantined_bad_coordinates
+        description: "Rejected: stop coordinates outside Berlin."
+      - name: quarantined_not_an_object
+        description: "Rejected: record was not a JSON object."
+      - name: quarantined_weather_reading
+        description: "Rejected weather readings."
+      - name: quarantined_other
+        description: "Rejected for any other reason."
+
+seeds:
+  - name: berlin_public_holidays
+    description: "GRAIN: one row per Berlin public holiday, 2025-2027, including the one-off holiday on 8 May 2025."
+    columns:
+      - name: holiday_date
+        description: "Date of the holiday. Primary key."
+        data_tests: [unique, not_null]
+      - name: holiday_name_de
+        description: "German name."
+      - name: holiday_name_en
+        description: "English name."

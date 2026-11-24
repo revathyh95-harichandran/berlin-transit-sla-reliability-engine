@@ -1,0 +1,24 @@
+version: 2
+
+# The RAW tables written by the dlt ingestion scripts. Timestamps are UTC.
+# Dev reads the DuckDB catalog "berlin_transit"; prod reads the Snowflake database RAW.
+sources:
+  - name: transit
+    description: "Raw tables loaded by the dlt collectors (VBB departures, weather, districts, poll logbook, quarantine)."
+    database: "{{ 'RAW' if target.name == 'prod' else 'berlin_transit' }}"
+    schema: transit
+    tables:
+      - name: vbb_departures
+        description: "Real departures from the VBB API, one row per departure per poll."
+      - name: synthetic_departures
+        description: "Labelled practice departures (same columns as vbb_departures plus is_synthetic)."
+      - name: vbb_poll_runs
+        description: "Logbook: one row per station per poll with status and row counts."
+      - name: quarantine_events
+        description: "Rows that failed the data contract, with the reason."
+      - name: weather_hourly
+        description: "Real hourly Berlin weather from Open-Meteo."
+      - name: synthetic_weather_hourly
+        description: "Labelled practice weather (plus is_synthetic)."
+      - name: bezirke
+        description: "The 12 Berlin districts with their boundaries as GeoJSON text."
