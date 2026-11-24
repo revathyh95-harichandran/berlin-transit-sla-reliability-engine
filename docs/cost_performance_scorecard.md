@@ -27,13 +27,13 @@ book to find one sentence. An incremental load is reading only the new pages.
 | 7 | No `SELECT *` in models | PASS | Search of `dbt_project/models` finds no `select *` |
 | 8 | No fan-out or Cartesian joins in the fact | PASS | Row count stays flat through every dimension join; dimensions are unique-key tested |
 | 9 | Spatial join (point-in-polygon) is cheap | PASS | 48 stops against 12 districts in about 10 ms |
-| 10 | Local DuckDB below 150 MB | FAIL | 172.5 MB measured now (up from 107.8 MB earlier today). Repeated full refreshes leave free space in the file until a checkpoint (section 5) |
+| 10 | Local DuckDB below 150 MB | PASS | 104.5 MB after rebuilding the file from scratch (it had grown to 172.5 MB because repeated full refreshes leave free space that a checkpoint does not hand back) |
 | 11 | Git repository below 5 MB | PASS | 180 KiB of loose objects; `.git` folder 618 KB |
 | 12 | CI cost is 0 EUR | PASS | The repository is public (confirmed through the GitHub API), so Actions minutes are free. If it ever goes private, the 3,000 to 4,000 minutes a month for collect.yml would exceed the 2,000-minute free quota |
 | 13 | Snowflake storage cost | PASS | About 8 to 16 MB of new RAW data per day (compressed estimate); well under 1 EUR per year |
 
-Summary: **1 FAIL, 1 WARN, 11 PASS** (13 checks). The FAIL is a local file-size issue that a checkpoint
-fixes. It is not a cloud cost issue. The main cloud risk left is the thin margin under the 4-credit cap.
+Summary: **0 FAIL, 1 WARN, 12 PASS** (13 checks). The only cloud risk left is the thin margin under the
+4-credit cap.
 
 ## 3. Benchmark: ad-hoc question against RAW versus the Gold mart
 
@@ -105,8 +105,9 @@ Assumptions, to verify in Snowsight under **Admin > Cost Management**:
 2. **Cut transform frequency to every 3 hours.** Done in fd2edd5: `transform.yml` runs `20 */3 * * *`
    (owner: `qa-devops`).
 3. **Make `mart_sla_breach_summary` incremental.** Done in fd2edd5 (owner: `analytics-eng`).
-4. **Shrink the local DuckDB file now (open, most urgent).** Run one `CHECKPOINT`, drop the duplicate
-   `transit_staging` schema, and re-measure against 150 MB (owner: `ingestion-eng`).
+4. **Shrink the local DuckDB file (done).** A `CHECKPOINT` did not reduce the file, so I deleted it and
+   rebuilt it from the collectors and dbt: 104.5 MB. If it grows past 150 MB again, rebuilding is the fix,
+   because the local file only holds reproducible data.
 5. **Confirm repo visibility and the Actions quota (done).** The repository is public, so Actions minutes
    are free. Re-check this if the repository is ever made private.
 6. **Keep the Power BI refresh to once a day (open, for when it is configured).** Import only the Gold mart
